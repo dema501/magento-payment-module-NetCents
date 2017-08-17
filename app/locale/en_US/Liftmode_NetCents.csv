@@ -1,0 +1,4 @@
+"Error during process payment: response code: %s %s","Error during process payment: response code: %s %s"
+"Invalid amount for authorization.","Invalid amount for authorization."
+"Refund action is not available.","Refund action is not available."
+"We recieved your payment for order id: %s. Order was paid by NetCents","We recieved your payment for order id: %s. Order was paid by NetCents"

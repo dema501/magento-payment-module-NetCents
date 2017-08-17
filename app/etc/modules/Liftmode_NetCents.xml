@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<config>
+    <modules>
+        <Liftmode_NetCents>
+            <active>true</active>
+            <codePool>local</codePool>
+            <depends>
+                <Mage_Payment/>
+                <Mage_Checkout/>
+            </depends>
+        </Liftmode_NetCents>
+    </modules>
+</config>
+

@@ -1,0 +1,76 @@
+<?xml version="1.0"?>
+<!--
+/**
+ *
+ * @category   Mage
+ * @package    Liftmode_NetCents
+ * @copyright  Copyright (c)  Dmitry Bashlov, contributors
+ */
+-->
+<config>
+    <modules>
+        <Liftmode_NetCents>
+            <version>0.0.2</version>
+        </Liftmode_NetCents>
+    </modules>
+    <global>
+        <models>
+            <netcents>
+                <class>Liftmode_NetCents_Model</class>
+            </netcents>
+        </models>
+        <helpers>
+            <netcents>
+                <class>Liftmode_NetCents_Helper</class>
+            </netcents>
+        </helpers>
+    </global>
+    <frontend>
+        <translate>
+            <modules>
+                <Liftmode_NetCents>
+                    <files>
+                        <default>Liftmode_NetCents.csv</default>
+                    </files>
+                </Liftmode_NetCents>
+            </modules>
+        </translate>
+    </frontend>
+    <adminhtml>
+        <translate>
+            <modules>
+                <Liftmode_NetCents>
+                    <files>
+                        <default>Liftmode_NetCents.csv</default>
+                    </files>
+                </Liftmode_NetCents>
+            </modules>
+        </translate>
+    </adminhtml>
+    <default>
+        <payment>
+            <netcents>
+                <active>0</active>
+                <model>netcents/method_NetCents</model>
+                <order_status>pending_payment</order_status>
+                <title>Credit Card payment via NetCents</title>
+                <gatewayurl>https://merchant.net-cents.com/api/v1</gatewayurl>
+                <allowspecific>1</allowspecific>
+                <payment_action>authorize_capture</payment_action>
+                <cctypes>VI,MC</cctypes>
+            </netcents>
+         </payment>
+    </default>
+    <crontab>
+        <jobs>
+            <netcents>
+                <schedule>
+                    <cron_expr>*/30 * * * *</cron_expr>
+                </schedule>
+                <run>
+                    <model>netcents/async::cron</model>
+                </run>
+            </netcents>
+        </jobs>
+    </crontab>
+</config>
