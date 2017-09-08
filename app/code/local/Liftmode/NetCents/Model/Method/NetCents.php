@@ -37,7 +37,7 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
         $data = $this->_doSale($payment);
 
-        $payment->setTransactionId($data['transaction_id'])
+        $payment->setTransactionId($data['confirmation'])
                 ->setAdditionalInformation(serialize($data))
                 ->setIsTransactionClosed(0);
 
@@ -63,7 +63,7 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
         $data = $this->_doSale($payment);
 
-        $payment->setTransactionId($data['transaction_id'])
+        $payment->setTransactionId($data['confirmation'])
                 ->setAdditionalInformation($data)
                 ->setIsTransactionClosed(0);
 
@@ -87,7 +87,7 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
         $data = $payment->getAdditionalInformation();
 
-        list ($resCode, $resData) =  $this->_doRequest($this->getURL('/payment/' . $data["confirmation"] . '/refund'), array(), array());
+        list ($resCode, $resData) =  $this->_doRequest($this->getURL('/payment/' . $data['confirmation'] . '/refund'), array(), array());
 
         $this->_doValidate($resCode, $resData);
 
@@ -155,29 +155,36 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
             "amount"        => (float) $payment->getAmount(), // Yes Decimal Total dollar amount with up to 2 decimal places.
         );
 
-        list ($code, $data) =  $this->_doPost(json_encode($data), '/payment');
+        list ($resCode, $resData) = $this->_doPost(json_encode($data), '/payment');
 
-        return $this->_doValidate($code, $data);
+        return $this->_doValidate($resCode, $resData, json_encode($data));
     }
 
 
     public function _doGetStatus(Varien_Object $payment)
     {
-        $data = $payment->getAdditionalInformation();
+        $data = array_intersect_key($payment->getAdditionalInformation(), array_flip(array('token')));
 
-        list ($resCode, $resData) = $this->_doPost(json_encode(array('token' => $data["token"])), '/magento/verify');
+        Mage::log(array('doGetStatus', $payment->getAdditionalInformation(), $data), null, 'NetCents.log');
 
-        return $this->_doValidate($resCode, $resData);
+        list ($resCode, $resData) = $this->_doPost(json_encode($data), '/magento/verify');
+
+        return $this->_doValidate($resCode, $resData, json_encode($data));
     }
 
 
-    private function _doValidate($code, $data = [])
+    private function _doValidate($code, $data = [], $sent)
     {
-        if ((int) substr($code, 0, 1) !== 2) {
+
+        $status = $data['status'];
+
+        if ((int) substr($status, 0, 1) !== 2) {
             $message = $data['message'];
-            Mage::log(array($code, $message), null, 'NetCents.log');
-            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $code, $message));
+            Mage::log(array($code, $data, $sent), null, 'NetCents.log');
+            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $status, $message));
         }
+
+        Mage::log(array('doValidate', $code, $data, $sent), null, 'NetCents.log');
 
         return $data;
     }
@@ -213,16 +220,20 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
         list ($respHeaders, $body) = explode("\r\n\r\n", $resp, 2);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
+        $errCode = curl_errno($ch);
+        $errMessage = curl_error($ch);
+
+        curl_close($ch);
+
         if (!empty($body)) {
             $body = json_decode($body, true);
         }
 
-        if (curl_errno($ch) || curl_error($ch)) {
-            Mage::log(array($url, $httpCode, $body, $query, $reqHeaders, $extReqHeaders, $extOpts, curl_error($ch)), null, 'NetCents.log');
-            Mage::throwException(curl_error($ch));
+        if ($errCode || $errMessage || (int) substr($httpCode, 0, 1) !== 2) {
+            Mage::log(array($url, $httpCode, $respHeaders, $body, $query, $reqHeaders, $extReqHeaders, $extOpts, $errMessage), null, 'NetCents.log');
+            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $errCode, $errMessage));
         }
 
-        curl_close($ch);
 
         return array($httpCode, $body);
     }

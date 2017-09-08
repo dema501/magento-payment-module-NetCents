@@ -10,7 +10,7 @@
 <config>
     <modules>
         <Liftmode_NetCents>
-            <version>0.0.2</version>
+            <version>0.0.3</version>
         </Liftmode_NetCents>
     </modules>
     <global>

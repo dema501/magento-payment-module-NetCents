@@ -21,7 +21,8 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
             if (!empty($data["status"]) && ((int) substr($data["status"], 0, 1) !== 2) ) {
                 $this->putOrderOnProcessing($order);
             } else {
-                $this->putOrderOnHold($order, 'No transaction found, you should manually make invoice');
+                Mage::log(array('syncOrderStatus------>>>No-transaction', $order->getIncrementId()), null, 'NetCents.log');
+//                $this->putOrderOnHold($order, 'No transaction found, you should manually make invoice');
             }
 
         } catch (Exception $e) {
@@ -35,7 +36,7 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
      */
     public function cron()
     {
-        if(Mage::getStoreConfig('payment/netcents/async')) {
+        if (Mage::getStoreConfig('payment/netcents/active') && Mage::getStoreConfig('payment/netcents/async')) {
             $orderCollection = Mage::getModel('sales/order_payment')
                 ->getCollection()
                 ->join(array('order'=>'sales/order'), 'main_table.parent_id=order.entity_id', 'state')
@@ -44,7 +45,6 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
                 ->addFieldToFilter('status', Mage_Index_Model_Process::STATUS_PENDING)
         ;
 
-        echo $orderCollection->getSelect()->__toString();
             foreach ($orderCollection as $orderRow) {
                 $order = Mage::getModel('sales/order')->load($orderRow->getParentId());
 
