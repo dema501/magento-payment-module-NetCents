@@ -39,7 +39,7 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
         $payment->setTransactionId($data['confirmation'])
                 ->setAdditionalInformation(serialize($data))
-                ->setIsTransactionClosed(0);
+                ->setIsTransactionClosed(false);
 
         return $this;
     }
@@ -65,7 +65,7 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
         $payment->setTransactionId($data['confirmation'])
                 ->setAdditionalInformation($data)
-                ->setIsTransactionClosed(0);
+                ->setIsTransactionClosed(true);
 
         return $this;
     }
@@ -87,9 +87,11 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
         $data = $payment->getAdditionalInformation();
 
-        list ($resCode, $resData) =  $this->_doRequest($this->getURL('/payment/' . $data['confirmation'] . '/refund'), array(), array());
+        if (empty($data['confirmation'])) {
+            Mage::throwException(Mage::helper('payment')->__('Refund action is not available.'));
+        }
 
-        $this->_doValidate($resCode, $resData);
+        $this->_doValidate(...$this->_doRequest($this->getURL('/payment/' . $data['confirmation'] . '/refund'), array(), array()));
 
         return $this;
     }
@@ -134,16 +136,16 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
 
         $data = array(
-            "first_name"    => strval($billingAddress->getFirstname()), // Yes, The customer’s first name. Characters allowed: a-z A-Z . ' and -
-            "last_name"     => strval($billingAddress->getLastname()), // Yes, The customer’s last name. Characters allowed: a-z A-Z . ' and -
+            "first_name"    => strval($billingAddress->getFirstname()), // Yes, The customer's first name. Characters allowed: a-z A-Z . ' and -
+            "last_name"     => strval($billingAddress->getLastname()), // Yes, The customer's last name. Characters allowed: a-z A-Z . ' and -
             "email"         => strval($order->getCustomerEmail()), // Yes, String Customer's email address. Must be a valid address. Upon processing of the draft an email will be sent to this address.
             "address"       => substr(strval($billingAddress->getStreet(1)), 0, 50), // Yes String The street portion of the mailing address associated with the customer's checking account. Include any apartment number or mail codes here. Any line breaks will be stripped out.
             "city"          => strval($billingAddress->getCity()), // Yes String The city portion of the mailing address associated with the customer's checking
             "state"         => strval($billingAddress->getRegionCode()),// Yes String The state portion of the mailing address associated with the customer's checking account. It must be a valid US state or territory
             "zip"           => strval($billingAddress->getPostcode()), // Yes String The zip code portion of the mailing address associated with the customer's checking account. Accepted formats: XXXXX,  XXXXX-XXXX
             "country"       => strval($billingAddress->getCountry()),
-            "phone"         => substr(str_replace(array(' ', '(', ')', '+', '-'), '', strval($billingAddress->getTelephone())), -10), // Yes, The customer’s phone number. Characters allowed: 0-9 + - ( and )
-            "ip"            => $this->getIpAddress(), // Yes, The customer’s IP address.
+            "phone"         => substr(str_replace(array(' ', '(', ')', '+', '-'), '', strval($billingAddress->getTelephone())), -10), // Yes, The customer's phone number. Characters allowed: 0-9 + - ( and )
+            "ip"            => $this->getIpAddress(), // Yes, The customer's IP address.
             "currency" => $order->getOrderCurrencyCode(),
             "card" => array (
                 "number"       => strval($payment->getCcNumber()), // Yes, The credit card number, numeric only (no spaces, no non-numeric).
@@ -155,42 +157,56 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
             "amount"        => (float) $payment->getAmount(), // Yes Decimal Total dollar amount with up to 2 decimal places.
         );
 
-        list ($resCode, $resData) = $this->_doPost(json_encode($data), '/payment');
+        // prepare to request
+        $jsonData = json_encode($data);
 
-        return $this->_doValidate($resCode, $resData, json_encode($data));
+        return $this->_doValidate(...$this->_doPost($jsonData, '/payment'), ...[$jsonData]);
     }
 
 
     public function _doGetStatus(Varien_Object $payment)
     {
-        $data = array_intersect_key($payment->getAdditionalInformation(), array_flip(array('token')));
+        $data = $payment->getAdditionalInformation();
 
-        Mage::log(array('doGetStatus', $payment->getAdditionalInformation(), $data), null, 'NetCents.log');
+        // Nothing to check
+        if (empty($data['token'])) {
+            return array();
+        }
 
-        list ($resCode, $resData) = $this->_doPost(json_encode($data), '/magento/verify');
+        // it was success at beginning
+        if ((int) substr($data['status'], 0, 1) === 2) {
+            return $data;
+        }
 
-        return $this->_doValidate($resCode, $resData, json_encode($data));
+        // prepare to request
+        $jsonData = json_encode(array('token' => $data['token']));
+
+        list (, $resData) = $this->_doPost($jsonData, '/magento/verify');
+
+        $this->log(array('tried to doGetStatus', 'AdditionalInformation' => $payment->getAdditionalInformation(), 'ResData' => $resData));
+
+        return $resData;
+    }
+
+
+    public function log($data)
+    {
+        Mage::log($data, null, 'NetCents.log');
     }
 
 
     private function _doValidate($code, $data = [], $sent)
     {
-
-        $status = $data['status'];
-
-        if ((int) substr($status, 0, 1) !== 2) {
-            $message = $data['message'];
-            Mage::log(array($code, $data, $sent), null, 'NetCents.log');
-            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $status, $message));
+        if (!empty($data["status"]) && (int) substr($data['status'], 0, 1) !== 2) {
+            $this->log(array('try to doValidate', 'httpStatusCode' => $code, 'RespJson' => $data, 'ReqJson' => $sent));
+            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $data['status'], $data['message']));
         }
-
-        Mage::log(array('doValidate', $code, $data, $sent), null, 'NetCents.log');
 
         return $data;
     }
 
 
-    private function _doRequest($url, $extReqHeaders = array(), $extOpts = array())
+    private function _doRequest($url, $extReqHeaders = array(), $extReqOpts = array())
     {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -211,7 +227,7 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
         curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($reqHeaders, $extReqHeaders));
 
-        foreach ($extOpts as $key => $value) {
+        foreach ($extReqOpts as $key => $value) {
             curl_setopt($ch, $key, $value);
         }
 
@@ -230,8 +246,8 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
         }
 
         if ($errCode || $errMessage || (int) substr($httpCode, 0, 1) !== 2) {
-            Mage::log(array($url, $httpCode, $respHeaders, $body, $query, $reqHeaders, $extReqHeaders, $extOpts, $errMessage), null, 'NetCents.log');
-            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $errCode, $errMessage));
+            $this->log(array('doRequest', 'url' => $url, 'httpRespCode' => $httpCode, 'httpRespHeaders' => $respHeaders, 'httpRespBody' => $body, 'httpReqHeaders' => array_merge($reqHeaders, $extReqHeaders), 'httpReqExtraOptions' => $extReqOpts, 'errCode' => $errCode, 'errMessage' => $errMessage));
+            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $httpCode, $errMessage));
         }
 
 

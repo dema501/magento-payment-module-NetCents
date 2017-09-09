@@ -8,21 +8,28 @@
 
 class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
 {
+
+    private $_model;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->_model = Mage::getModel('netcents/method_netCents');
+    }
+
     /**
      * Poll Amazon API to receive order status and update Magento order.
      */
     public function syncOrderStatus(Mage_Sales_Model_Order $order, $isManualSync = false)
     {
         try {
-            $netCents = Mage::getModel('netcents/method_netCents');
+            $data = $this->_model->_doGetStatus($order->getPayment());
 
-            $data = $netCents->_doGetStatus($order->getPayment());
-
-            if (!empty($data["status"]) && ((int) substr($data["status"], 0, 1) !== 2) ) {
+            if (!empty($data["status"]) && (int) substr($data["status"], 0, 1) === 2) {
                 $this->putOrderOnProcessing($order);
-            } else {
-                Mage::log(array('syncOrderStatus------>>>No-transaction', $order->getIncrementId()), null, 'NetCents.log');
-//                $this->putOrderOnHold($order, 'No transaction found, you should manually make invoice');
+            } elseif (!empty($data["status"])) {
+                $this->_model->log(array('syncOrderStatus------>>>No-transaction', $data));
+                $this->putOrderOnHold($order, 'No transaction found, you should manually make invoice');
             }
 
         } catch (Exception $e) {
@@ -36,7 +43,7 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
      */
     public function cron()
     {
-        if (Mage::getStoreConfig('payment/netcents/active') && Mage::getStoreConfig('payment/netcents/async')) {
+        if ($this->_model->getConfigData('active') && $this->_model->getConfigData('async')) {
             $orderCollection = Mage::getModel('sales/order_payment')
                 ->getCollection()
                 ->join(array('order'=>'sales/order'), 'main_table.parent_id=order.entity_id', 'state')
@@ -45,10 +52,12 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
                 ->addFieldToFilter('status', Mage_Index_Model_Process::STATUS_PENDING)
         ;
 
+            $this->_model->log(array('run sql------>>>', $orderCollection->getSelect()->__toString()));
+
             foreach ($orderCollection as $orderRow) {
                 $order = Mage::getModel('sales/order')->load($orderRow->getParentId());
 
-                Mage::log(array('found orders------>>>', $order->getIncrementId(), $order->getStatus(), $order->getState()), null, 'NetCents.log');
+                $this->_model->log(array('found order------>>>', 'IncrementId' => $order->getIncrementId(), 'Status' => $order->getStatus(), 'State' => $order->getState()));
 
                 $this->syncOrderStatus($order);
             }
@@ -57,7 +66,7 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
 
     public function putOrderOnProcessing(Mage_Sales_Model_Order $order)
     {
-        Mage::log(array('putOrderOnProcessing------>>>', $order->canShip()), null, 'NetCents.log');
+        $this->_model->log(array('putOrderOnProcessing------>>>', 'IncrementId' => $order->getIncrementId()));
 
         // Change order to "On Process"
         if ($order->canShip()) {
@@ -75,14 +84,14 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
 
                 Mage::getSingleton('adminhtml/session')->addSuccess(Mage::helper('netcents')->__('We recieved your payment for order id: %s. Order was paid by NetCents', $order->getIncrementId()));
             } catch (Exception $e) {
-                Mage::log(array('putOrderOnProcessing---->>>>', $e->getMessage()), null, 'NetCents.log');
+                $this->_model->log(array('putOrderOnProcessing---->>>>', $e->getMessage()));
             }
         }
     }
 
     public function putOrderOnHold(Mage_Sales_Model_Order $order, $reason)
     {
-        Mage::log(array('putOrderOnHold------>>>', $order->getIncrementId()), null, 'NetCents.log');
+        $this->_model->log(array('putOrderOnHold------>>>', 'IncrementId' => $order->getIncrementId()));
 
         // Change order to "On Hold"
         try {
@@ -90,7 +99,7 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
             $order->addStatusToHistory($order->getStatus(), $reason, false);
             $order->save();
         } catch (Exception $e) {
-            Mage::log(array('putOrderOnProcessing---->>>>', $e->getMessage()), null, 'NetCents.log');
+            $this->_model->log(array('putOrderOnHold---->>>>', $e->getMessage()));
         }
     }
 }

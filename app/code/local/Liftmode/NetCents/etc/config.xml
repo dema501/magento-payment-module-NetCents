@@ -10,7 +10,7 @@
 <config>
     <modules>
         <Liftmode_NetCents>
-            <version>0.0.3</version>
+            <version>0.0.4</version>
         </Liftmode_NetCents>
     </modules>
     <global>
@@ -65,7 +65,7 @@
         <jobs>
             <netcents>
                 <schedule>
-                    <cron_expr>*/30 * * * *</cron_expr>
+                    <cron_expr>*/20 * * * *</cron_expr>
                 </schedule>
                 <run>
                     <model>netcents/async::cron</model>
