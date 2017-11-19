@@ -30,10 +30,8 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
     public function authorize(Varien_Object $payment, $amount)
     {
         if ($amount <= 0) {
-            Mage::throwException(Mage::helper('netcents')->__('Invalid amount for authorization.'));
+            Mage::throwException(Mage::helper($this->_code)->__('Invalid amount for authorization.'));
         }
-
-        $payment->setAmount($amount);
 
         $data = $this->_doSale($payment);
 
@@ -56,8 +54,9 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
     public function capture(Varien_Object $payment, $amount)
     {
         if ($amount <= 0) {
-            Mage::throwException(Mage::helper('netcents')->__('Invalid amount for authorization.'));
+            Mage::throwException(Mage::helper($this->_code)->__('Invalid amount for capture.'));
         }
+
 
         $payment->setAmount($amount);
 
@@ -82,13 +81,13 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
     public function refund(Varien_Object $payment, $amount)
     {
         if (!$this->canRefund()) {
-            Mage::throwException(Mage::helper('payment')->__('Refund action is not available.'));
+            Mage::throwException(Mage::helper($this->_code)->__('Refund action is not available.'));
         }
 
         $data = $payment->getAdditionalInformation();
 
         if (empty($data['confirmation'])) {
-            Mage::throwException(Mage::helper('payment')->__('Refund action is not available.'));
+            Mage::throwException(Mage::helper($this->_code)->__('Refund action is not available.'));
         }
 
         $this->_doValidate(...$this->_doRequest($this->getURL('/payment/' . $data['confirmation'] . '/refund'), array(), array()));
@@ -160,7 +159,7 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
         // prepare to request
         $jsonData = json_encode($data);
 
-        return $this->_doValidate(...$this->_doPost($jsonData, '/payment'), ...[$jsonData]);
+        return $this->_doValidate(...$this->_doPost($jsonData, '/payment'), ...[$this->_sanitizeData($jsonData)]);
     }
 
 
@@ -169,23 +168,38 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
         $data = $payment->getAdditionalInformation();
 
         // Nothing to check
-        if (empty($data['token'])) {
+        if (empty($data['order_id'])) {
             return array();
         }
 
-        // it was success at beginning
-        if ((int) substr($data['status'], 0, 1) === 2) {
-            return $data;
-        }
-
-        // prepare to request
-        $jsonData = json_encode(array('token' => $data['token']));
-
-        list (, $resData) = $this->_doPost($jsonData, '/magento/verify');
-
-        $this->log(array('tried to doGetStatus', 'AdditionalInformation' => $payment->getAdditionalInformation(), 'ResData' => $resData));
+        list (, $resData) = $this->_doRequest($this->getURL('/transactions/' . $data['order_id']));
 
         return $resData;
+    }
+
+
+    private function _sanitizeData($data) {
+        if (is_string($data)) {
+            return preg_replace('/"number":\s*"[^"]*([^"]{4})"/i', '"number":"***$1"', preg_replace('/"ccv":\s*"([^"]*)"/i', '"ccv":"***"', $data));
+        }
+
+        if (is_array($data)) {
+            foreach ($data as $k => $v) {
+                if (is_array($v)) {
+                    return $this->_sanitizeData($v);
+                } else {
+                    if (in_array($k, array('ccnumber', 'number', 'CardNumber')) {
+                        $data[$k] = "***" . substr($data[$k], -4);
+                    }
+
+                    if (in_array($k, array('cvv', 'CardCVV')) {
+                        $data[$k] = "***";
+                    }
+                }
+            }
+        }
+
+        return $data;
     }
 
 
@@ -197,9 +211,25 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
     private function _doValidate($code, $data = [], $sent)
     {
-        if (!empty($data["status"]) && (int) substr($data['status'], 0, 1) !== 2) {
-            $this->log(array('try to doValidate', 'httpStatusCode' => $code, 'RespJson' => $data, 'ReqJson' => $sent));
-            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $data['status'], $data['message']));
+        $this->log(array(
+            'try to doValidate - before',
+            'httpStatusCode' => $code,
+            'RespJson' => $data,
+            'ReqJson' => $sent,
+            'PassValidation' =>  (!(empty($data) === false && empty($data["status"]) === false && (int) substr($data['status'], 0, 1) === 2))
+        ));
+
+        if (!(empty($data) === false && empty($data["status"]) === false && (int) substr($data['status'], 0, 1) === 2)) {
+            $this->log(array('error on doValidate', 'httpStatusCode' => $code, 'RespJson' => $data, 'ReqJson' => $sent));
+
+            if (Mage::getStoreConfig('slack/general/enable_notification')) {
+                $notificationModel   = Mage::getSingleton('mhauri_slack/notification');
+                $notificationModel->setMessage(
+                    Mage::helper($this->_code)->__("*Netcents payment failed with data:*\nNetcents response ```%s```\n\nData sent ```%s```", json_encode($data), $sent)
+                )->send(array('icon_emoji' => ':cop:'));
+            }
+
+            Mage::throwException(Mage::helper($this->_code)->__("Error during payment processing: response code: %s %s\nThis credit card processor cannot accept your card; please select a different payment method.", $data['status'], $data['message'] . "\r\n" ));
         }
 
         return $data;
@@ -221,7 +251,6 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
         curl_setopt($ch, CURLOPT_USERPWD, Mage::helper('core')->decrypt($this->getAccountId()) . ':'. Mage::helper('core')->decrypt($this->getAuthSecret()));
 
         $reqHeaders = array(
-          'Content-Type: application/json',
           'Cache-Control: no-cache',
         );
 
@@ -247,7 +276,15 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
 
         if ($errCode || $errMessage || (int) substr($httpCode, 0, 1) !== 2) {
             $this->log(array('doRequest', 'url' => $url, 'httpRespCode' => $httpCode, 'httpRespHeaders' => $respHeaders, 'httpRespBody' => $body, 'httpReqHeaders' => array_merge($reqHeaders, $extReqHeaders), 'httpReqExtraOptions' => $extReqOpts, 'errCode' => $errCode, 'errMessage' => $errMessage));
-            Mage::throwException(Mage::helper('netcents')->__("Error during process payment: response code: %s %s", $httpCode, $errMessage));
+
+            if (Mage::getStoreConfig('slack/general/enable_notification')) {
+                $notificationModel   = Mage::getSingleton('mhauri_slack/notification');
+                $notificationModel->setMessage(
+                    Mage::helper($this->_code)->__("*Netcents payment failed with data:*\nNetcents response ```%s %s```\n\nData sent ```%s```", $httpCode, $errMessage, $this->_sanitizeData(!empty($extReqOpts[CURLOPT_POSTFIELDS]) ? $extReqOpts[CURLOPT_POSTFIELDS] : ''))
+                )->send(array('icon_emoji' => ':warning:'));
+            }
+
+            Mage::throwException(Mage::helper($this->_code)->__("Error during payment processing: response code: %s %s. This credit card processor cannot accept your card; please select a different payment method.", $httpCode, $errMessage . "\r\n" ));
         }
 
 
@@ -258,6 +295,7 @@ class Liftmode_NetCents_Model_Method_NetCents extends Mage_Payment_Model_Method_
     private function _doPost($query, $uri)
     {
         return $this->_doRequest($this->getURL($uri), array(
+            'Content-Type: application/json',
             'Content-Length: ' . strlen($query),
         ), array(
             CURLOPT_POST => true,

@@ -25,15 +25,14 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
         try {
             $data = $this->_model->_doGetStatus($order->getPayment());
 
-            if (!empty($data["status"]) && (int) substr($data["status"], 0, 1) === 2) {
+            if (empty($data) === false && empty($data["approved"]) === false && (int) $data["approved"] === 1) {
                 $this->putOrderOnProcessing($order);
-            } elseif (!empty($data["status"])) {
-                $this->_model->log(array('syncOrderStatus------>>>No-transaction', $data));
+            } else {
+                $this->_model->log(array('comment' => 'Ive got Status', 'status' => $data));
                 $this->putOrderOnHold($order, 'No transaction found, you should manually make invoice');
             }
 
         } catch (Exception $e) {
-//            $this->putOrderOnHold($order);
             Mage::logException($e);
         }
     }
@@ -47,7 +46,7 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
             $orderCollection = Mage::getModel('sales/order_payment')
                 ->getCollection()
                 ->join(array('order'=>'sales/order'), 'main_table.parent_id=order.entity_id', 'state')
-                ->addFieldToFilter('method', 'netcents')
+                ->addFieldToFilter('method', $this->_model->_code)
                 ->addFieldToFilter('state',  array('in' => array(Mage_Sales_Model_Order::STATE_PENDING_PAYMENT, Mage_Sales_Model_Order::STATE_PROCESSING)))
                 ->addFieldToFilter('status', Mage_Index_Model_Process::STATUS_PENDING)
         ;
@@ -81,8 +80,6 @@ class Liftmode_NetCents_Model_Async extends Mage_Core_Model_Abstract
 
                 $order->addStatusToHistory($order->getStatus(), 'We recieved your payment, thank you!', true);
                 $order->save();
-
-                Mage::getSingleton('adminhtml/session')->addSuccess(Mage::helper('netcents')->__('We recieved your payment for order id: %s. Order was paid by NetCents', $order->getIncrementId()));
             } catch (Exception $e) {
                 $this->_model->log(array('putOrderOnProcessing---->>>>', $e->getMessage()));
             }

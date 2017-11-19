@@ -1,4 +1,12 @@
 <?xml version="1.0"?>
+<!--
+/**
+ *
+ * @category   Mage
+ * @package    Liftmode_NetCents
+ * @copyright  Copyright (c)  Dmitry Bashlov, contributors.
+ */
+-->
 <config>
     <modules>
         <Liftmode_NetCents>
@@ -7,6 +15,7 @@
             <depends>
                 <Mage_Payment/>
                 <Mage_Checkout/>
+                <!-- <Liftmode_SimpleFraudProtection /> -->
             </depends>
         </Liftmode_NetCents>
     </modules>
